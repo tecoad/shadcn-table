@@ -2,31 +2,43 @@
 
 import * as React from "react"
 import { tasks, type Task } from "@/db/schema"
-import { type DataTableFilterField } from "@/types"
+import type {
+  DataTableAdvancedFilterField,
+  DataTableFilterField,
+} from "@/types"
 
 import { useDataTable } from "@/hooks/use-data-table"
-import { DataTableAdvancedToolbar } from "@/components/data-table/advanced/data-table-advanced-toolbar"
 import { DataTable } from "@/components/data-table/data-table"
+import { DataTableAdvancedToolbar } from "@/components/data-table/data-table-advanced-toolbar"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 
-import { type getTasks } from "../_lib/queries"
+import type {
+  getTaskPriorityCounts,
+  getTasks,
+  getTaskStatusCounts,
+} from "../_lib/queries"
 import { getPriorityIcon, getStatusIcon } from "../_lib/utils"
+import { useFeatureFlags } from "./feature-flags-provider"
 import { getColumns } from "./tasks-table-columns"
 import { TasksTableFloatingBar } from "./tasks-table-floating-bar"
-import { useTasksTable } from "./tasks-table-provider"
 import { TasksTableToolbarActions } from "./tasks-table-toolbar-actions"
 
 interface TasksTableProps {
-  tasksPromise: ReturnType<typeof getTasks>
+  promises: Promise<
+    [
+      Awaited<ReturnType<typeof getTasks>>,
+      Awaited<ReturnType<typeof getTaskStatusCounts>>,
+      Awaited<ReturnType<typeof getTaskPriorityCounts>>,
+    ]
+  >
 }
 
-export function TasksTable({ tasksPromise }: TasksTableProps) {
-  // Feature flags for showcasing some additional features. Feel free to remove them.
-  const { featureFlags } = useTasksTable()
+export function TasksTable({ promises }: TasksTableProps) {
+  const { featureFlags } = useFeatureFlags()
 
-  const { data, pageCount } = React.use(tasksPromise)
+  const [{ data, pageCount }, statusCounts, priorityCounts] =
+    React.use(promises)
 
-  // Memoize the columns so they don't re-render on every render
   const columns = React.useMemo(() => getColumns(), [])
 
   /**
@@ -42,38 +54,87 @@ export function TasksTable({ tasksPromise }: TasksTableProps) {
    */
   const filterFields: DataTableFilterField<Task>[] = [
     {
+      id: "title",
       label: "Title",
-      value: "title",
       placeholder: "Filter titles...",
     },
     {
+      id: "status",
       label: "Status",
-      value: "status",
       options: tasks.status.enumValues.map((status) => ({
         label: status[0]?.toUpperCase() + status.slice(1),
         value: status,
         icon: getStatusIcon(status),
-        withCount: true,
+        count: statusCounts[status],
       })),
     },
     {
+      id: "priority",
       label: "Priority",
-      value: "priority",
       options: tasks.priority.enumValues.map((priority) => ({
         label: priority[0]?.toUpperCase() + priority.slice(1),
         value: priority,
         icon: getPriorityIcon(priority),
-        withCount: true,
+        count: priorityCounts[priority],
       })),
     },
   ]
+
+  /**
+   * Advanced filter fields for the data table.
+   * These fields provide more complex filtering options compared to the regular filterFields.
+   *
+   * Key differences from regular filterFields:
+   * 1. More field types: Includes 'text', 'multi-select', 'date', and 'boolean'.
+   * 2. Enhanced flexibility: Allows for more precise and varied filtering options.
+   * 3. Used with DataTableAdvancedToolbar: Enables a more sophisticated filtering UI.
+   * 4. Date and boolean types: Adds support for filtering by date ranges and boolean values.
+   */
+  const advancedFilterFields: DataTableAdvancedFilterField<Task>[] = [
+    {
+      id: "title",
+      label: "Title",
+      type: "text",
+      placeholder: "Filter titles...",
+    },
+    {
+      id: "status",
+      label: "Status",
+      type: "multi-select",
+      options: tasks.status.enumValues.map((status) => ({
+        label: status[0]?.toUpperCase() + status.slice(1),
+        value: status,
+        icon: getStatusIcon(status),
+        count: statusCounts[status],
+      })),
+    },
+    {
+      id: "priority",
+      label: "Priority",
+      type: "multi-select",
+      options: tasks.priority.enumValues.map((priority) => ({
+        label: priority[0]?.toUpperCase() + priority.slice(1),
+        value: priority,
+        icon: getPriorityIcon(priority),
+        count: priorityCounts[priority],
+      })),
+    },
+    {
+      id: "createdAt",
+      label: "Created At",
+      type: "date",
+    },
+  ]
+
+  const advancedFilter = featureFlags.includes("advancedFilter")
+  const floatingBar = featureFlags.includes("floatingBar")
 
   const { table } = useDataTable({
     data,
     columns,
     pageCount,
     filterFields,
-    enableAdvancedFilter: featureFlags.includes("advancedFilter"),
+    enableAdvancedFilter: advancedFilter,
     initialState: {
       sorting: [{ id: "createdAt", desc: true }],
       columnPinning: { right: ["actions"] },
@@ -83,22 +144,24 @@ export function TasksTable({ tasksPromise }: TasksTableProps) {
     clearOnDefault: true,
   })
 
-  const Toolbar = featureFlags.includes("advancedFilter")
-    ? DataTableAdvancedToolbar
-    : DataTableToolbar
-
   return (
     <DataTable
       table={table}
-      floatingBar={
-        featureFlags.includes("floatingBar") ? (
-          <TasksTableFloatingBar table={table} />
-        ) : null
-      }
+      floatingBar={floatingBar ? <TasksTableFloatingBar table={table} /> : null}
     >
-      <Toolbar table={table} filterFields={filterFields}>
-        <TasksTableToolbarActions table={table} />
-      </Toolbar>
+      {advancedFilter ? (
+        <DataTableAdvancedToolbar
+          table={table}
+          filterFields={advancedFilterFields}
+          shallow={false}
+        >
+          <TasksTableToolbarActions table={table} />
+        </DataTableAdvancedToolbar>
+      ) : (
+        <DataTableToolbar table={table} filterFields={filterFields}>
+          <TasksTableToolbarActions table={table} />
+        </DataTableToolbar>
+      )}
     </DataTable>
   )
 }

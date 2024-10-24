@@ -1,39 +1,43 @@
-"use memo"
-
 import * as React from "react"
 import { type SearchParams } from "@/types"
 
+import { getValidFilters } from "@/lib/data-table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DataTableSkeleton } from "@/components/data-table/data-table-skeleton"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { Shell } from "@/components/shell"
 
+import { FeatureFlagsProvider } from "./_components/feature-flags-provider"
 import { TasksTable } from "./_components/tasks-table"
-import { TasksTableProvider } from "./_components/tasks-table-provider"
-import { getTasks } from "./_lib/queries"
-import { searchParamsSchema } from "./_lib/validations"
+import {
+  getTaskPriorityCounts,
+  getTasks,
+  getTaskStatusCounts,
+} from "./_lib/queries"
+import { searchParamsCache } from "./_lib/validations"
 
-export interface IndexPageProps {
-  searchParams: SearchParams
+interface IndexPageProps {
+  searchParams: Promise<SearchParams>
 }
 
-export default async function IndexPage({ searchParams }: IndexPageProps) {
-  const search = searchParamsSchema.parse(searchParams)
+export default async function IndexPage(props: IndexPageProps) {
+  const searchParams = await props.searchParams
+  const search = searchParamsCache.parse(searchParams)
 
-  const tasksPromise = getTasks(search)
+  const validFilters = getValidFilters(search.filters)
+
+  const promises = Promise.all([
+    getTasks({
+      ...search,
+      filters: validFilters,
+    }),
+    getTaskStatusCounts(),
+    getTaskPriorityCounts(),
+  ])
 
   return (
     <Shell className="gap-2">
-      {/**
-       * The `TasksTableProvider` is use to enable some feature flags for the `TasksTable` component.
-       * Feel free to remove this, as it's not required for the `TasksTable` component to work.
-       */}
-      <TasksTableProvider>
-        {/**
-         * The `DateRangePicker` component is used to render the date range picker UI.
-         * It is used to filter the tasks based on the selected date range it was created at.
-         * The business logic for filtering the tasks based on the selected date range is handled inside the component.
-         */}
+      <FeatureFlagsProvider>
         <React.Suspense fallback={<Skeleton className="h-7 w-52" />}>
           <DateRangePicker
             triggerSize="sm"
@@ -45,21 +49,17 @@ export default async function IndexPage({ searchParams }: IndexPageProps) {
         <React.Suspense
           fallback={
             <DataTableSkeleton
-              columnCount={5}
+              columnCount={6}
               searchableColumnCount={1}
               filterableColumnCount={2}
-              cellWidths={["10rem", "40rem", "12rem", "12rem", "8rem"]}
+              cellWidths={["10rem", "40rem", "12rem", "12rem", "8rem", "8rem"]}
               shrinkZero
             />
           }
         >
-          {/**
-           * Passing promises and consuming them using React.use for triggering the suspense fallback.
-           * @see https://react.dev/reference/react/use
-           */}
-          <TasksTable tasksPromise={tasksPromise} />
+          <TasksTable promises={promises} />
         </React.Suspense>
-      </TasksTableProvider>
+      </FeatureFlagsProvider>
     </Shell>
   )
 }

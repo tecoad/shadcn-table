@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useQueryState } from "nuqs"
 
 import { dataTableConfig, type DataTableConfig } from "@/config/data-table"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -14,7 +15,7 @@ type FeatureFlagValue = DataTableConfig["featureFlags"][number]["value"]
 
 interface TasksTableContextProps {
   featureFlags: FeatureFlagValue[]
-  setFeatureFlags: React.Dispatch<React.SetStateAction<FeatureFlagValue[]>>
+  setFeatureFlags: (value: FeatureFlagValue[]) => void
 }
 
 const TasksTableContext = React.createContext<TasksTableContextProps>({
@@ -31,13 +32,23 @@ export function useTasksTable() {
 }
 
 export function TasksTableProvider({ children }: React.PropsWithChildren) {
-  const [featureFlags, setFeatureFlags] = React.useState<FeatureFlagValue[]>([])
+  const [featureFlags, setFeatureFlags] = useQueryState<FeatureFlagValue[]>(
+    "featureFlags",
+    {
+      defaultValue: [],
+      parse: (value) => value.split(",") as FeatureFlagValue[],
+      serialize: (value) => value.join(","),
+      eq: (a, b) =>
+        a.length === b.length && a.every((value, index) => value === b[index]),
+      clearOnDefault: true,
+    }
+  )
 
   return (
     <TasksTableContext.Provider
       value={{
         featureFlags,
-        setFeatureFlags,
+        setFeatureFlags: (value) => void setFeatureFlags(value),
       }}
     >
       <div className="w-full overflow-x-auto">
@@ -50,7 +61,7 @@ export function TasksTableProvider({ children }: React.PropsWithChildren) {
           className="w-fit"
         >
           {dataTableConfig.featureFlags.map((flag) => (
-            <Tooltip key={flag.value} delayDuration={250}>
+            <Tooltip key={flag.value}>
               <ToggleGroupItem
                 value={flag.value}
                 className="whitespace-nowrap px-3 text-xs"
